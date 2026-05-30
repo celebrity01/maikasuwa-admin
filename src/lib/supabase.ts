@@ -46,6 +46,8 @@ export interface SellerProfile {
   shop_type: string;
   photo_url: string | null;
   status: SellerStatus;
+  is_disabled: boolean;
+  default_password_set: boolean;
   created_at: string;
   updated_at: string;
 }

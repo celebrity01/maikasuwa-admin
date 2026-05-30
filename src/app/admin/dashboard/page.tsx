@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, LogOut, Search, Filter, CheckCircle2,
   XCircle, Eye, ChevronRight, ShieldCheck, Clock, Store,
   ShoppingBag, AlertTriangle, RefreshCw, Mail, Phone, MapPin,
-  ArrowLeft, Home, Building, UserCheck,
+  ArrowLeft, Home, Building, UserCheck, Ban, Power,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDate, statusColor } from "@/lib/data";
@@ -64,15 +64,16 @@ function Sidebar({ active, onNav, onLogout }: { active: string; onNav: (v: strin
 // ── Dashboard Stats ──
 function DashboardView({ sellers }: { sellers: SellerProfile[] }) {
   const pending = sellers.filter((s) => s.status === "pending").length;
-  const approved = sellers.filter((s) => s.status === "approved").length;
+  const approved = sellers.filter((s) => s.status === "approved" && !s.is_disabled).length;
+  const disabled = sellers.filter((s) => s.is_disabled).length;
   const rejected = sellers.filter((s) => s.status === "rejected").length;
   const total = sellers.length;
 
   const stats = [
     { label: "Total Sellers", value: total, icon: Users, cls: "stat-card-ember" },
     { label: "Pending Review", value: pending, icon: Clock, cls: "stat-card-gold" },
-    { label: "Approved", value: approved, icon: CheckCircle2, cls: "stat-card-green" },
-    { label: "Rejected", value: rejected, icon: XCircle, cls: "stat-card-red" },
+    { label: "Active", value: approved, icon: CheckCircle2, cls: "stat-card-green" },
+    { label: "Disabled", value: disabled, icon: Ban, cls: "stat-card-red" },
   ];
 
   return (
@@ -119,25 +120,34 @@ function DashboardView({ sellers }: { sellers: SellerProfile[] }) {
 }
 
 // ── Seller Detail Modal ──
-function SellerDetailModal({ seller, onClose, onApprove, onReject }: {
+function SellerDetailModal({ seller, onClose, onApprove, onReject, onToggleDisable }: {
   seller: SellerProfile;
   onClose: () => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onToggleDisable: (id: string, disable: boolean, reason?: string) => void;
 }) {
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
+  const [disableReason, setDisableReason] = useState("");
+  const [showDisable, setShowDisable] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const handleAction = async (action: "approve" | "reject") => {
+  const handleAction = async (action: "approve" | "reject" | "disable" | "enable") => {
     setActionLoading(true);
     if (action === "approve") {
       await onApprove(seller.id);
-    } else {
+    } else if (action === "reject") {
       await onReject(seller.id);
+    } else if (action === "disable") {
+      await onToggleDisable(seller.id, true, disableReason || undefined);
+    } else if (action === "enable") {
+      await onToggleDisable(seller.id, false);
     }
     setActionLoading(false);
   };
+
+  const isDisabled = seller.is_disabled;
 
   return (
     <motion.div
@@ -159,10 +169,18 @@ function SellerDetailModal({ seller, onClose, onApprove, onReject }: {
             <div>
               <h3 className="text-base font-black text-[#FFE4A0]">{seller.shop_name}</h3>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${statusColor(seller.status)}`}>
-                  {seller.status.toUpperCase()}
-                </span>
-                {seller.status === "approved" && <ShieldCheck className="size-3 text-green-400" />}
+                {isDisabled ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-orange-500/15 text-orange-400 border-orange-500/20">
+                    DISABLED
+                  </span>
+                ) : (
+                  <>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${statusColor(seller.status)}`}>
+                      {seller.status.toUpperCase()}
+                    </span>
+                    {seller.status === "approved" && <ShieldCheck className="size-3 text-green-400" />}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -172,6 +190,14 @@ function SellerDetailModal({ seller, onClose, onApprove, onReject }: {
         </div>
 
         <div className="kente-stripe mb-4" />
+
+        {/* Disabled Warning */}
+        {isDisabled && (
+          <div className="flex items-center gap-2 px-3 py-2.5 mb-4 rounded-lg bg-orange-500/10 border border-orange-500/20">
+            <Ban className="size-4 text-orange-400 flex-shrink-0" />
+            <span className="text-xs text-orange-400">This seller account has been disabled. Their products are paused and they cannot log in.</span>
+          </div>
+        )}
 
         {/* Seller Details */}
         <div className="space-y-3 mb-5">
@@ -245,14 +271,65 @@ function SellerDetailModal({ seller, onClose, onApprove, onReject }: {
           </div>
         )}
 
-        {seller.status === "approved" && (
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-green-500/8 border border-green-500/15">
-            <CheckCircle2 className="size-4 text-green-400" />
-            <span className="text-xs text-green-400">This seller has been approved and notified via email.</span>
+        {seller.status === "approved" && !isDisabled && !showDisable && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-green-500/8 border border-green-500/15">
+              <CheckCircle2 className="size-4 text-green-400" />
+              <span className="text-xs text-green-400">This seller has been approved and notified via email.</span>
+            </div>
+            <button
+              onClick={() => setShowDisable(true)}
+              disabled={actionLoading}
+              className="w-full py-3 rounded-xl text-sm font-bold uppercase tracking-wider bg-orange-500/10 border border-orange-500/20 text-orange-400 hover:bg-orange-500/15 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <Ban className="size-4" /> Disable Seller
+            </button>
           </div>
         )}
 
-        {seller.status === "rejected" && (
+        {seller.status === "approved" && !isDisabled && showDisable && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-orange-500/8 border border-orange-500/15">
+              <AlertTriangle className="size-4 text-orange-400" />
+              <span className="text-xs text-orange-400">Disabling will pause all products and block the seller from logging in.</span>
+            </div>
+            <textarea
+              value={disableReason}
+              onChange={(e) => setDisableReason(e.target.value)}
+              placeholder="Reason for disabling (optional, sent to seller)"
+              className="w-full bg-[#1A2030] border border-[rgba(255,154,60,0.15)] rounded-xl px-3 py-2.5 text-sm text-[#FFE4A0] placeholder:text-[#4A4238] outline-none focus:border-[rgba(255,154,60,0.4)] resize-none h-20"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowDisable(false); setDisableReason(""); }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-[#7A6E62] bg-[#1A2030] border border-[rgba(255,154,60,0.1)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleAction("disable")}
+                disabled={actionLoading}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 hover:bg-orange-500/15 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Ban className="size-3.5" /> Confirm Disable
+              </button>
+            </div>
+          </div>
+        )}
+
+        {seller.status === "approved" && isDisabled && (
+          <div className="space-y-3">
+            <button
+              onClick={() => handleAction("enable")}
+              disabled={actionLoading}
+              className="w-full py-3 rounded-xl text-sm font-bold uppercase tracking-wider bg-green-500/15 border border-green-500/25 text-green-400 hover:bg-green-500/25 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <Power className="size-4" /> Re-enable Seller
+            </button>
+          </div>
+        )}
+
+        {seller.status === "rejected" && !isDisabled && (
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-red-500/8 border border-red-500/15">
             <XCircle className="size-4 text-red-400" />
             <span className="text-xs text-red-400">This seller application was rejected.</span>
@@ -282,7 +359,11 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
   const [selectedSeller, setSelectedSeller] = useState<SellerProfile | null>(null);
 
   const filtered = sellers.filter((s) => {
-    if (statusFilter !== "all" && s.status !== statusFilter) return false;
+    if (statusFilter === "disabled") {
+      if (!s.is_disabled) return false;
+    } else if (statusFilter !== "all" && s.status !== statusFilter) {
+      return false;
+    }
     if (search) {
       const q = search.toLowerCase();
       return s.full_name.toLowerCase().includes(q) || s.shop_name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.phone.includes(q);
@@ -324,6 +405,23 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
     }
   };
 
+  const handleToggleDisable = async (id: string, disable: boolean, reason?: string) => {
+    const admin = JSON.parse(localStorage.getItem("kasuwa_admin") || "{}");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (admin.accessToken) {
+      headers["Authorization"] = `Bearer ${admin.accessToken}`;
+    }
+    const res = await fetch("/api/admin/toggle-seller", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ sellerId: id, disable, reason }),
+    });
+    if (res.ok) {
+      setSelectedSeller(null);
+      onRefresh();
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -352,14 +450,16 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
             className="w-full bg-[#1A2030] border border-[rgba(255,154,60,0.15)] rounded-xl px-3 py-2.5 pl-10 text-sm text-[#FFE4A0] placeholder:text-[#4A4238] outline-none focus:border-[rgba(255,154,60,0.4)] transition-all"
           />
         </div>
-        <div className="flex gap-1.5">
-          {["all", "pending", "approved", "rejected"].map((s) => (
+        <div className="flex gap-1.5 flex-wrap">
+          {["all", "pending", "approved", "disabled", "rejected"].map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
               className={`px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all ${
                 statusFilter === s
-                  ? "bg-[rgba(255,154,60,0.1)] text-[#FF9A3C] border border-[rgba(255,154,60,0.15)]"
+                  ? s === "disabled"
+                    ? "bg-orange-500/10 text-orange-400 border border-orange-500/15"
+                    : "bg-[rgba(255,154,60,0.1)] text-[#FF9A3C] border border-[rgba(255,154,60,0.15)]"
                   : "text-[#7A6E62] hover:text-[#FFE4A0] bg-[#1A2030] border border-transparent"
               }`}
             >
@@ -389,9 +489,15 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-[#FFE4A0] truncate">{seller.shop_name}</span>
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${statusColor(seller.status)}`}>
-                    {seller.status}
-                  </span>
+                  {seller.is_disabled ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-orange-500/15 text-orange-400 border-orange-500/20">
+                      DISABLED
+                    </span>
+                  ) : (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${statusColor(seller.status)}`}>
+                      {seller.status}
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-[#7A6E62] mt-0.5">
                   {seller.full_name} · {seller.city}, {seller.state} · {seller.phone}
@@ -414,6 +520,7 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
             onClose={() => setSelectedSeller(null)}
             onApprove={handleApprove}
             onReject={handleReject}
+            onToggleDisable={handleToggleDisable}
           />
         )}
       </AnimatePresence>

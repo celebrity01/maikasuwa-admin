@@ -72,7 +72,8 @@ export function formatDate(dateStr: string): string {
   });
 }
 
-export function statusColor(status: string): string {
+export function statusColor(status: string, isDisabled?: boolean): string {
+  if (isDisabled) return "bg-orange-500/15 text-orange-400 border-orange-500/20";
   switch (status) {
     case "approved": return "bg-green-500/15 text-green-400 border-green-500/20";
     case "pending": return "bg-amber-500/15 text-amber-400 border-amber-500/20";
