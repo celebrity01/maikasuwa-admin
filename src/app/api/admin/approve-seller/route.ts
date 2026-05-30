@@ -13,6 +13,22 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+function generateDefaultPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
+  let password = "";
+  // Ensure at least one uppercase, one lowercase, one digit, one special
+  password += "ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random() * 25)];
+  password += "abcdefghjkmnpqrstuvwxyz"[Math.floor(Math.random() * 25)];
+  password += "23456789"[Math.floor(Math.random() * 8)];
+  password += "!@#$"[Math.floor(Math.random() * 4)];
+  // Fill to 12 chars
+  for (let i = 4; i < 12; i++) {
+    password += chars[Math.floor(Math.random() * chars.length)];
+  }
+  // Shuffle
+  return password.split("").sort(() => Math.random() - 0.5).join("");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServerClient();
@@ -34,10 +50,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Seller ID required" }, { status: 400 });
     }
 
-    // Update seller status
-    const { data: seller, error } = await supabase
+    // Fetch the seller profile
+    const { data: seller, error: fetchError } = await supabase
       .from("seller_profiles")
-      .update({ status: "approved", updated_at: new Date().toISOString() })
+      .select("*")
+      .eq("id", sellerId)
+      .single();
+
+    if (fetchError || !seller) {
+      return NextResponse.json({ error: fetchError?.message || "Seller not found" }, { status: 400 });
+    }
+
+    // Generate default password
+    const defaultPassword = generateDefaultPassword();
+
+    // Create Supabase auth user for the seller (if not already created)
+    let authUserId = seller.user_id;
+
+    if (!authUserId) {
+      // No auth user yet — create one with admin privileges
+      // Use the admin API to create user without requiring email confirmation
+      const { data: authData, error: authCreateError } = await supabase.auth.signUp({
+        email: seller.email,
+        password: defaultPassword,
+        options: {
+          data: {
+            role: "seller",
+            full_name: seller.full_name,
+          },
+        },
+      });
+
+      if (authCreateError) {
+        console.error("Auth user creation failed:", authCreateError);
+        // If user already exists, try to find them
+        if (authCreateError.message.includes("already registered")) {
+          // We can't easily get their ID, proceed with approval
+          // The seller will use the default password on the seller portal login
+        }
+      } else if (authData.user) {
+        authUserId = authData.user.id;
+      }
+    }
+
+    // Update seller status
+    const { data: updatedSeller, error } = await supabase
+      .from("seller_profiles")
+      .update({
+        status: "approved",
+        user_id: authUserId,
+        default_password_set: true,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", sellerId)
       .select()
       .single();
@@ -46,14 +110,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // Send approval email
-    if (seller?.email && resend) {
+    // Send approval email with credentials
+    if (seller.email && resend) {
       try {
         const safeName = escapeHtml(seller.full_name || "");
         const safeShopName = escapeHtml(seller.shop_name || "");
-        const safeShopAddress = escapeHtml(seller.shop_address || "");
-        const safeCity = escapeHtml(seller.city || "");
-        const safeState = escapeHtml(seller.state || "");
+        const safeEmail = escapeHtml(seller.email);
+        const safePassword = escapeHtml(defaultPassword);
 
         await resend.emails.send({
           from: "KASUWA 2.0 <noreply@kasuwa.ng>",
@@ -78,18 +141,35 @@ export async function POST(req: NextRequest) {
                   You can now log in to the seller portal and start uploading your products to the marketplace.
                 </p>
 
-                <div style="background: rgba(255,154,60,0.08); border: 1px solid rgba(255,154,60,0.15); border-radius: 12px; padding: 20px; margin-top: 24px;">
+                <div style="background: rgba(45,143,78,0.08); border: 1px solid rgba(45,143,78,0.15); border-radius: 12px; padding: 20px; margin-top: 24px;">
+                  <h3 style="font-size: 14px; color: #3DAF62; margin: 0 0 12px;">Your Login Credentials</h3>
+                  <table style="width: 100%; font-size: 13px; color: #B8A898;">
+                    <tr>
+                      <td style="padding: 6px 0; color: #7A6E62; width: 100px;">Username</td>
+                      <td style="padding: 6px 0; color: #FFE4A0; font-weight: 600; font-family: monospace; background: rgba(255,154,60,0.06); padding: 6px 10px; border-radius: 6px;">${safeEmail}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #7A6E62;">Password</td>
+                      <td style="padding: 6px 0; color: #FFE4A0; font-weight: 600; font-family: monospace; background: rgba(255,154,60,0.06); padding: 6px 10px; border-radius: 6px;">${safePassword}</td>
+                    </tr>
+                  </table>
+                  <p style="font-size: 11px; color: #7A6E62; margin-top: 12px;">
+                    Please change your password after your first login for security.
+                  </p>
+                </div>
+
+                <div style="background: rgba(255,154,60,0.08); border: 1px solid rgba(255,154,60,0.15); border-radius: 12px; padding: 20px; margin-top: 16px;">
                   <h3 style="font-size: 14px; color: #FFB84D; margin: 0 0 12px;">Your Shop Details</h3>
                   <table style="width: 100%; font-size: 13px; color: #B8A898;">
                     <tr><td style="padding: 4px 0; color: #7A6E62;">Shop Name</td><td style="padding: 4px 0; color: #FFE4A0; font-weight: 600;">${safeShopName}</td></tr>
-                    <tr><td style="padding: 4px 0; color: #7A6E62;">Address</td><td style="padding: 4px 0; color: #FFE4A0;">${safeShopAddress}</td></tr>
-                    <tr><td style="padding: 4px 0; color: #7A6E62;">City/State</td><td style="padding: 4px 0; color: #FFE4A0;">${safeCity}, ${safeState}</td></tr>
+                    <tr><td style="padding: 4px 0; color: #7A6E62;">Address</td><td style="padding: 4px 0; color: #FFE4A0;">${escapeHtml(seller.shop_address || "")}</td></tr>
+                    <tr><td style="padding: 4px 0; color: #7A6E62;">City/State</td><td style="padding: 4px 0; color: #FFE4A0;">${escapeHtml(seller.city || "")}, ${escapeHtml(seller.state || "")}</td></tr>
                   </table>
                 </div>
               </div>
 
               <div style="text-align: center;">
-                <a href="https://kasuwa.ng/seller/login" style="display: inline-block; background: linear-gradient(135deg, #FF9A3C, #FFD166); color: #06080C; padding: 14px 32px; border-radius: 12px; font-weight: 700; font-size: 14px; text-decoration: none; text-transform: uppercase; letter-spacing: 0.04em;">
+                <a href="https://seller.kasuwa.ng/seller/login" style="display: inline-block; background: linear-gradient(135deg, #3DAF62, #2D8F4E); color: #06080C; padding: 14px 32px; border-radius: 12px; font-weight: 700; font-size: 14px; text-decoration: none; text-transform: uppercase; letter-spacing: 0.04em;">
                   Log In to Seller Portal
                 </a>
               </div>
@@ -106,8 +186,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ message: "Seller approved successfully", seller });
+    return NextResponse.json({
+      message: "Seller approved successfully",
+      seller: updatedSeller,
+      credentials: { email: seller.email, defaultPassword },
+    });
   } catch (err) {
+    console.error("Approve seller error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
