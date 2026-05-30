@@ -291,9 +291,14 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
   });
 
   const handleApprove = async (id: string) => {
+    const admin = JSON.parse(localStorage.getItem("kasuwa_admin") || "{}");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (admin.accessToken) {
+      headers["Authorization"] = `Bearer ${admin.accessToken}`;
+    }
     const res = await fetch("/api/admin/approve-seller", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ sellerId: id }),
     });
     if (res.ok) {
@@ -303,9 +308,14 @@ function SellersView({ sellers, loading, onRefresh }: { sellers: SellerProfile[]
   };
 
   const handleReject = async (id: string) => {
+    const admin = JSON.parse(localStorage.getItem("kasuwa_admin") || "{}");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (admin.accessToken) {
+      headers["Authorization"] = `Bearer ${admin.accessToken}`;
+    }
     const res = await fetch("/api/admin/reject-seller", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ sellerId: id }),
     });
     if (res.ok) {
@@ -421,7 +431,12 @@ export default function AdminDashboard() {
   const fetchSellers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/sellers?status=all");
+      const admin = JSON.parse(localStorage.getItem("kasuwa_admin") || "{}");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (admin.accessToken) {
+        headers["Authorization"] = `Bearer ${admin.accessToken}`;
+      }
+      const res = await fetch("/api/admin/sellers?status=all", { headers });
       const data = await res.json();
       if (data.sellers) setSellers(data.sellers);
     } catch (err) {

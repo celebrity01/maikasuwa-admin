@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase";
+import { z } from "zod";
+
+const sellerSignupSchema = z.object({
+  fullName: z.string().min(1, "Full name is required"),
+  email: z.string().email("Valid email is required"),
+  phone: z.string().min(10, "Phone number must be at least 10 digits"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  shopName: z.string().min(1, "Shop name is required"),
+  shopAddress: z.string().min(1, "Shop address is required"),
+  homeAsBusiness: z.boolean().optional(),
+  city: z.string().min(1, "City is required"),
+  state: z.string().min(1, "State is required"),
+  lga: z.string().optional(),
+  landmark: z.string().optional(),
+  shopType: z.string().optional(),
+  photoUrl: z.string().optional(),
+});
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServerClient();
     const body = await req.json();
-    const { fullName, email, phone, password, shopName, shopAddress, homeAsBusiness, city, state, lga, landmark, shopType, photoUrl } = body;
+    const validated = sellerSignupSchema.parse(body);
+    const { fullName, email, phone, password, shopName, shopAddress, homeAsBusiness, city, state, lga, landmark, shopType, photoUrl } = validated;
 
     // Create auth user
     const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -53,6 +71,9 @@ export async function POST(req: NextRequest) {
       status: "pending",
     });
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: "Validation failed", details: err.issues }, { status: 400 });
+    }
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

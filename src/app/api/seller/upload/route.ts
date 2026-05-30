@@ -25,8 +25,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    // Resolve sellerId (auth UID) to seller profile ID
+    const { data: sellerProfile } = await supabase
+      .from("seller_profiles")
+      .select("id")
+      .eq("user_id", sellerId)
+      .single();
+
+    if (!sellerProfile) {
+      return NextResponse.json({ error: "Seller profile not found" }, { status: 403 });
+    }
+
     const { data, error } = await supabase.from("products").insert({
-      seller_id: sellerId,
+      seller_id: sellerProfile.id,
       name,
       category,
       subcategory: subcategory || "",

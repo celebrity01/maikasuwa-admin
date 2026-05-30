@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     // Check if seller is approved
     const { data: profile } = await supabase
       .from("seller_profiles")
-      .select("status, shop_name")
+      .select("id, status, shop_name")
       .eq("user_id", data.user.id)
       .single();
 
@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       session: data.session,
       role: "seller",
       shopName: profile.shop_name,
+      sellerProfileId: profile.id,
     });
   } catch (err) {
     return NextResponse.json({ error: "Server error" }, { status: 500 });

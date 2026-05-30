@@ -2,11 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServerClient();
+
+    // Verify admin access
+    const authHeader = req.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { sellerId } = await req.json();
 
     if (!sellerId) {
@@ -26,8 +47,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Send approval email
-    if (seller?.email) {
+    if (seller?.email && resend) {
       try {
+        const safeName = escapeHtml(seller.full_name || "");
+        const safeShopName = escapeHtml(seller.shop_name || "");
+        const safeShopAddress = escapeHtml(seller.shop_address || "");
+        const safeCity = escapeHtml(seller.city || "");
+        const safeState = escapeHtml(seller.state || "");
+
         await resend.emails.send({
           from: "KASUWA 2.0 <noreply@kasuwa.ng>",
           to: seller.email,
@@ -41,10 +68,10 @@ export async function POST(req: NextRequest) {
               </div>
 
               <div style="background: #141A22; border: 1px solid rgba(255,154,60,0.18); border-radius: 16px; padding: 32px; margin-bottom: 24px;">
-                <h2 style="font-size: 20px; color: #3DAF62; margin: 0 0 16px;">Congratulations, ${seller.full_name}! 🎉</h2>
+                <h2 style="font-size: 20px; color: #3DAF62; margin: 0 0 16px;">Congratulations, ${safeName}! 🎉</h2>
 
                 <p style="font-size: 14px; line-height: 1.6; color: #B8A898;">
-                  Your seller account for <strong style="color: #FF9A3C;">${seller.shop_name}</strong> has been approved by the KASUWA admin team.
+                  Your seller account for <strong style="color: #FF9A3C;">${safeShopName}</strong> has been approved by the KASUWA admin team.
                 </p>
 
                 <p style="font-size: 14px; line-height: 1.6; color: #B8A898; margin-top: 16px;">
@@ -54,9 +81,9 @@ export async function POST(req: NextRequest) {
                 <div style="background: rgba(255,154,60,0.08); border: 1px solid rgba(255,154,60,0.15); border-radius: 12px; padding: 20px; margin-top: 24px;">
                   <h3 style="font-size: 14px; color: #FFB84D; margin: 0 0 12px;">Your Shop Details</h3>
                   <table style="width: 100%; font-size: 13px; color: #B8A898;">
-                    <tr><td style="padding: 4px 0; color: #7A6E62;">Shop Name</td><td style="padding: 4px 0; color: #FFE4A0; font-weight: 600;">${seller.shop_name}</td></tr>
-                    <tr><td style="padding: 4px 0; color: #7A6E62;">Address</td><td style="padding: 4px 0; color: #FFE4A0;">${seller.shop_address}</td></tr>
-                    <tr><td style="padding: 4px 0; color: #7A6E62;">City/State</td><td style="padding: 4px 0; color: #FFE4A0;">${seller.city}, ${seller.state}</td></tr>
+                    <tr><td style="padding: 4px 0; color: #7A6E62;">Shop Name</td><td style="padding: 4px 0; color: #FFE4A0; font-weight: 600;">${safeShopName}</td></tr>
+                    <tr><td style="padding: 4px 0; color: #7A6E62;">Address</td><td style="padding: 4px 0; color: #FFE4A0;">${safeShopAddress}</td></tr>
+                    <tr><td style="padding: 4px 0; color: #7A6E62;">City/State</td><td style="padding: 4px 0; color: #FFE4A0;">${safeCity}, ${safeState}</td></tr>
                   </table>
                 </div>
               </div>

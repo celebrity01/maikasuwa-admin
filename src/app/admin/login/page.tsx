@@ -33,7 +33,7 @@ export default function AdminLogin() {
       }
 
       // Store session info
-      localStorage.setItem("kasuwa_admin", JSON.stringify({ role: "admin", email: data.user?.email || email }));
+      localStorage.setItem("kasuwa_admin", JSON.stringify({ role: "admin", email: data.user?.email || email, accessToken: data.session?.access_token }));
       router.push("/admin/dashboard");
     } catch {
       setError("Connection error. Please try again.");

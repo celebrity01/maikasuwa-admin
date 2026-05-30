@@ -386,7 +386,7 @@ export default function SellerDashboard() {
   const [activeView, setActiveView] = useState("dashboard");
   const [products, setProducts] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sellerInfo, setSellerInfo] = useState<{ userId: string; email: string; shopName: string } | null>(null);
+  const [sellerInfo, setSellerInfo] = useState<{ userId: string; sellerProfileId: string; email: string; shopName: string } | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -400,10 +400,10 @@ export default function SellerDashboard() {
   }, [router]);
 
   const fetchProducts = useCallback(async () => {
-    if (!sellerInfo?.userId) return;
+    if (!sellerInfo?.sellerProfileId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/seller/products?sellerId=${sellerInfo.userId}`);
+      const res = await fetch(`/api/seller/products?sellerId=${sellerInfo.sellerProfileId}`);
       const data = await res.json();
       if (data.products) setProducts(data.products);
     } catch (err) {
@@ -411,7 +411,7 @@ export default function SellerDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [sellerInfo?.userId]);
+  }, [sellerInfo?.sellerProfileId]);
 
   useEffect(() => {
     if (sellerInfo) fetchProducts();
@@ -420,10 +420,8 @@ export default function SellerDashboard() {
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm("Delete this product?")) return;
     try {
-      await fetch("/api/seller/products", {
+      await fetch(`/api/seller/products?productId=${productId}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId }),
       });
       fetchProducts();
     } catch (err) {
@@ -470,7 +468,7 @@ export default function SellerDashboard() {
 
         {activeView === "dashboard" && <SellerDashboardView products={products} shopName={sellerInfo.shopName} />}
         {activeView === "products" && <ProductsView products={products} loading={loading} onRefresh={fetchProducts} onDelete={handleDeleteProduct} />}
-        {activeView === "new-product" && <AddProductView sellerId={sellerInfo.userId} onCreated={fetchProducts} />}
+        {activeView === "new-product" && <AddProductView sellerId={sellerInfo.sellerProfileId} onCreated={fetchProducts} />}
       </main>
     </div>
   );

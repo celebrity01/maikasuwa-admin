@@ -36,6 +36,7 @@ export default function SellerLogin() {
       localStorage.setItem("kasuwa_seller", JSON.stringify({
         role: "seller",
         userId: data.user?.id,
+        sellerProfileId: data.sellerProfileId,
         email: data.user?.email || email,
         shopName: data.shopName,
       }));

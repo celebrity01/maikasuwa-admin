@@ -2,11 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = createServerClient();
+
+    // Verify admin access
+    const authHeader = req.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { sellerId, reason } = await req.json();
 
     if (!sellerId) {
@@ -25,8 +46,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Send rejection email
-    if (seller?.email) {
+    if (seller?.email && resend) {
       try {
+        const safeName = escapeHtml(seller.full_name || "");
+        const safeShopName = escapeHtml(seller.shop_name || "");
+        const safeReason = reason ? escapeHtml(reason) : "";
+
         await resend.emails.send({
           from: "KASUWA 2.0 <noreply@kasuwa.ng>",
           to: seller.email,
@@ -40,9 +65,9 @@ export async function POST(req: NextRequest) {
               <div style="background: #141A22; border: 1px solid rgba(255,154,60,0.18); border-radius: 16px; padding: 32px;">
                 <h2 style="font-size: 18px; color: #E04040; margin: 0 0 16px;">Seller Application Update</h2>
                 <p style="font-size: 14px; line-height: 1.6; color: #B8A898;">
-                  Dear ${seller.full_name}, we regret to inform you that your seller application for <strong style="color: #FF9A3C;">${seller.shop_name}</strong> was not approved at this time.
+                  Dear ${safeName}, we regret to inform you that your seller application for <strong style="color: #FF9A3C;">${safeShopName}</strong> was not approved at this time.
                 </p>
-                ${reason ? `<p style="font-size: 14px; line-height: 1.6; color: #B8A898; margin-top: 16px;"><strong>Reason:</strong> ${reason}</p>` : ""}
+                ${safeReason ? `<p style="font-size: 14px; line-height: 1.6; color: #B8A898; margin-top: 16px;"><strong>Reason:</strong> ${safeReason}</p>` : ""}
                 <p style="font-size: 14px; line-height: 1.6; color: #B8A898; margin-top: 16px;">
                   You may reapply after addressing the issues mentioned above. If you believe this was an error, please contact our support team.
                 </p>
