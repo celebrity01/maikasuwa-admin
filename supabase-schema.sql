@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS public.seller_profiles (
   shop_type TEXT DEFAULT 'shop',
   photo_url TEXT,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  is_disabled BOOLEAN DEFAULT false,
+  default_password_set BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -32,9 +34,13 @@ ALTER TABLE public.seller_profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public insert" ON public.seller_profiles
   FOR INSERT WITH CHECK (true);
 
--- Allow authenticated users to read their own profile
+-- Allow authenticated users to read their own profile (by user_id or email)
 CREATE POLICY "Users can read own profile" ON public.seller_profiles
-  FOR SELECT USING (auth.uid() = user_id);
+  FOR SELECT USING (auth.uid() = user_id OR email = auth.jwt()->>'email');
+
+-- Allow authenticated sellers to update their own profile
+CREATE POLICY "Sellers can update own profile" ON public.seller_profiles
+  FOR UPDATE USING (auth.uid() = user_id);
 
 -- Allow service role full access (for admin API)
 CREATE POLICY "Service role full access" ON public.seller_profiles
