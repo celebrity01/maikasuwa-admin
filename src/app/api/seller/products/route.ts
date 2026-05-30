@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createServerClient } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
   try {
+    const supabase = createServerClient();
     const { searchParams } = new URL(req.url);
     const sellerId = searchParams.get("sellerId");
 
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const supabase = createServerClient();
     const { productId } = await req.json();
 
     const { error } = await supabase

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createServerClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = createServerClient();
     const { email, password } = await req.json();
 
     const adminEmail = process.env.ADMIN_EMAIL || "admin@kasuwa.ng";
