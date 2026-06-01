@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase";
+import { verifyAdmin, createAdminClient } from "@/lib/supabase";
 import { Resend } from "resend";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -15,18 +15,14 @@ function escapeHtml(str: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createServerClient();
-
     // Verify admin access
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const adminResult = await verifyAdmin(req);
+    if (!adminResult) {
+      return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 401 });
     }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+
+    // Use service_role client to bypass RLS
+    const supabase = createAdminClient();
 
     const { sellerId, reason } = await req.json();
 
@@ -81,7 +77,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ message: "Seller rejected", seller });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message?.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+      return NextResponse.json({ error: "Server configuration error: SUPABASE_SERVICE_ROLE_KEY not set" }, { status: 500 });
+    }
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

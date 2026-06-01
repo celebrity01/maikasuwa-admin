@@ -2,6 +2,21 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+/** List of admin email addresses (comma-separated in env, or fallback)
+ *  These emails bypass the user_metadata.role check on login.
+ */
+export const ADMIN_EMAILS: string[] = (
+  process.env.ADMIN_EMAILS || 'admin@kasuwa.ng'
+).split(',').map((e: string) => e.trim().toLowerCase());
+
+/**
+ * Check if an email belongs to an admin
+ */
+export function isAdminEmail(email: string): boolean {
+  return ADMIN_EMAILS.includes(email.toLowerCase());
+}
 
 /**
  * Singleton client — only use for client-side reads
@@ -24,6 +39,47 @@ export function createServerClient(): SupabaseClient {
       persistSession: false,
     },
   });
+}
+
+/**
+ * Create a Supabase client using the service_role key.
+ * This bypasses ALL Row Level Security policies.
+ * ONLY use in server-side admin API routes — never expose to the client.
+ */
+export function createAdminClient(): SupabaseClient {
+  if (!supabaseServiceRoleKey) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set. Admin operations require this environment variable.');
+  }
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+/**
+ * Verify that a request comes from an admin user.
+ * Checks both the Bearer token validity AND admin role.
+ * Returns the user if valid, or null otherwise.
+ */
+export async function verifyAdmin(req: Request): Promise<{ user: any; token: string } | null> {
+  const authHeader = req.headers.get('authorization');
+  const token = authHeader?.replace('Bearer ', '');
+  if (!token) return null;
+
+  const supabase = createServerClient();
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+
+  // Check admin role: either via user_metadata.role OR via admin email list
+  const role = user.user_metadata?.role;
+  const email = user.email || '';
+  if (role === 'admin' || isAdminEmail(email)) {
+    return { user, token };
+  }
+
+  return null;
 }
 
 // ── Database types ──

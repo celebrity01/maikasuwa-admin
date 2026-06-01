@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase";
+import { verifyAdmin, createAdminClient, createServerClient } from "@/lib/supabase";
 import { Resend } from "resend";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -16,33 +16,26 @@ function escapeHtml(str: string): string {
 function generateDefaultPassword(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
   let password = "";
-  // Ensure at least one uppercase, one lowercase, one digit, one special
   password += "ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random() * 25)];
   password += "abcdefghjkmnpqrstuvwxyz"[Math.floor(Math.random() * 25)];
   password += "23456789"[Math.floor(Math.random() * 8)];
   password += "!@#$"[Math.floor(Math.random() * 4)];
-  // Fill to 12 chars
   for (let i = 4; i < 12; i++) {
     password += chars[Math.floor(Math.random() * chars.length)];
   }
-  // Shuffle
   return password.split("").sort(() => Math.random() - 0.5).join("");
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createServerClient();
-
     // Verify admin access
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const adminResult = await verifyAdmin(req);
+    if (!adminResult) {
+      return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 401 });
     }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+
+    // Use service_role client for DB operations that need to bypass RLS
+    const supabase = createAdminClient();
 
     const { sellerId } = await req.json();
 
@@ -68,8 +61,6 @@ export async function POST(req: NextRequest) {
     let authUserId = seller.user_id;
 
     if (!authUserId) {
-      // No auth user yet — create one with admin privileges
-      // Use the admin API to create user without requiring email confirmation
       const { data: authData, error: authCreateError } = await supabase.auth.signUp({
         email: seller.email,
         password: defaultPassword,
@@ -83,10 +74,8 @@ export async function POST(req: NextRequest) {
 
       if (authCreateError) {
         console.error("Auth user creation failed:", authCreateError);
-        // If user already exists, try to find them
         if (authCreateError.message.includes("already registered")) {
-          // We can't easily get their ID, proceed with approval
-          // The seller will use the default password on the seller portal login
+          // User already exists, proceed with approval
         }
       } else if (authData.user) {
         authUserId = authData.user.id;
@@ -121,7 +110,7 @@ export async function POST(req: NextRequest) {
         await resend.emails.send({
           from: "KASUWA 2.0 <noreply@kasuwa.ng>",
           to: seller.email,
-          subject: "Your KASUWA Seller Account Has Been Approved! 🏮",
+          subject: "Your KASUWA Seller Account Has Been Approved!",
           html: `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #06080C; color: #FFE4A0; padding: 40px 24px;">
               <div style="text-align: center; margin-bottom: 32px;">
@@ -131,7 +120,7 @@ export async function POST(req: NextRequest) {
               </div>
 
               <div style="background: #141A22; border: 1px solid rgba(255,154,60,0.18); border-radius: 16px; padding: 32px; margin-bottom: 24px;">
-                <h2 style="font-size: 20px; color: #3DAF62; margin: 0 0 16px;">Congratulations, ${safeName}! 🎉</h2>
+                <h2 style="font-size: 20px; color: #3DAF62; margin: 0 0 16px;">Congratulations, ${safeName}!</h2>
 
                 <p style="font-size: 14px; line-height: 1.6; color: #B8A898;">
                   Your seller account for <strong style="color: #FF9A3C;">${safeShopName}</strong> has been approved by the KASUWA admin team.
@@ -182,7 +171,6 @@ export async function POST(req: NextRequest) {
         });
       } catch (emailErr) {
         console.error("Email send failed:", emailErr);
-        // Still return success even if email fails
       }
     }
 
@@ -191,7 +179,10 @@ export async function POST(req: NextRequest) {
       seller: updatedSeller,
       credentials: { email: seller.email, defaultPassword },
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message?.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+      return NextResponse.json({ error: "Server configuration error: SUPABASE_SERVICE_ROLE_KEY not set" }, { status: 500 });
+    }
     console.error("Approve seller error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

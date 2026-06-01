@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase";
+import { verifyAdmin, createAdminClient } from "@/lib/supabase";
 import { Resend } from "resend";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -15,18 +15,14 @@ function escapeHtml(str: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createServerClient();
-
     // Verify admin access
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const adminResult = await verifyAdmin(req);
+    if (!adminResult) {
+      return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 401 });
     }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+
+    // Use service_role client to bypass RLS
+    const supabase = createAdminClient();
 
     const { sellerId, disable, reason } = await req.json();
 
@@ -116,11 +112,10 @@ export async function POST(req: NextRequest) {
             `,
           });
         } else {
-          // Re-enabled
           await resend.emails.send({
             from: "KASUWA 2.0 <noreply@kasuwa.ng>",
             to: seller.email,
-            subject: "Your KASUWA Seller Account Has Been Reactivated! 🏮",
+            subject: "Your KASUWA Seller Account Has Been Reactivated!",
             html: `
               <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #06080C; color: #FFE4A0; padding: 40px 24px;">
                 <div style="text-align: center; margin-bottom: 32px;">
@@ -130,7 +125,7 @@ export async function POST(req: NextRequest) {
                 </div>
 
                 <div style="background: #141A22; border: 1px solid rgba(255,154,60,0.18); border-radius: 16px; padding: 32px; margin-bottom: 24px;">
-                  <h2 style="font-size: 18px; color: #3DAF62; margin: 0 0 16px;">Account Reactivated! 🎉</h2>
+                  <h2 style="font-size: 18px; color: #3DAF62; margin: 0 0 16px;">Account Reactivated!</h2>
                   <p style="font-size: 14px; line-height: 1.6; color: #B8A898;">
                     Dear ${safeName}, your seller account for <strong style="color: #FF9A3C;">${safeShopName}</strong> has been reactivated by the KASUWA admin team.
                   </p>
@@ -161,7 +156,10 @@ export async function POST(req: NextRequest) {
       message: disable ? "Seller disabled successfully" : "Seller enabled successfully",
       seller: updatedSeller,
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message?.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+      return NextResponse.json({ error: "Server configuration error: SUPABASE_SERVICE_ROLE_KEY not set" }, { status: 500 });
+    }
     console.error("Toggle seller error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

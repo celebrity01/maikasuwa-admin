@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase";
+import { verifyAdmin, createAdminClient } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createServerClient();
+    // Verify admin access (checks token + admin role)
+    const adminResult = await verifyAdmin(req);
+    if (!adminResult) {
+      return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 401 });
+    }
 
-    // Verify admin access
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Use service_role client to bypass RLS for admin queries
+    const supabase = createAdminClient();
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
@@ -40,7 +36,11 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ sellers: data || [] });
-  } catch (err) {
+  } catch (err: any) {
+    // If service_role key is missing, give a clear error
+    if (err?.message?.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+      return NextResponse.json({ error: "Server configuration error: SUPABASE_SERVICE_ROLE_KEY not set" }, { status: 500 });
+    }
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
